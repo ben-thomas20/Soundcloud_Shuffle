@@ -15,9 +15,9 @@ have ever liked.
 It runs in a side panel styled like a mobile music player, with an animated
 "hexdump" ASCII backdrop rendered from the current track's artwork.
 
-<!-- Add a screenshot at docs/screenshot.png and uncomment the next line:
-![True Shuffle side panel](docs/screenshot.png)
--->
+
+![True Shuffle side panel](docs/demo.png)
+
 
 ## Install
 
