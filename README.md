@@ -51,19 +51,7 @@ listing (see [Why it is not on the Web Store](#why-it-is-not-on-the-web-store)).
 
 ## How it works
 
-- `background.js` watches `api-v2.soundcloud.com` requests via
-  `webRequest.onSendHeaders` and stashes the `Authorization` token and
-  `client_id` in `chrome.storage.session` (memory only, cleared on browser
-  restart).
-- `sidepanel.js` pages through your `track_likes` until there are no more,
-  trims each track to five fields, caches the list in `chrome.storage.local`
-  for 24 hours, then Fisher-Yates shuffles it and plays through an embedded
-  widget with auto-advance.
-- Tracks that load but never actually start (Go+, geo-blocked, embedding
-  disabled) are timed out after 9 seconds and remembered in a persistent "dead
-  list" so they are skipped on later runs.
-- `ascii-bg.js` samples the current track's artwork into a grid and renders it
-  as animated hex glyphs behind the player.
+
 
 ## Privacy and security
 
@@ -71,25 +59,14 @@ This extension reads your own SoundCloud OAuth token, locally, so it can call
 the same API your browser already calls. That token stays on your machine in
 session storage and **nothing is ever sent anywhere except SoundCloud's own
 servers**. There is no analytics, no external server, and no third-party code
-beyond the SoundCloud Widget API you fetch in step 2.
+beyond the SoundCloud Widget API you fetch.
 
 Because the extension reads an `Authorization` header to do this, treat it like
 what it is: a personal tool you are running on your own account. Review the
 source before loading it. It is deliberately small (a few plain files, no
 bundler, no dependencies) so that it is easy to read end to end.
 
-## Known limitations
 
-- **Unplayable tracks.** Go+ subscription tracks, region-blocked uploads, and
-  tracks with embedding disabled cannot play in the widget. They are detected,
-  skipped, and remembered.
-- **Closing the panel stops playback.** That is the tradeoff for using a side
-  panel instead of a popup (a popup would stop the music every time it lost
-  focus).
-- **Token rotation.** If you start seeing "token expired," your OAuth token
-  rotated. Reload `soundcloud.com` and it is picked up again.
-- **api-v2 is undocumented.** These endpoints are unsupported and can change
-  without notice.
 
 ## Why it is not on the Web Store
 
