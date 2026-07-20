@@ -1,0 +1,12 @@
+# The SoundCloud Widget API is third-party proprietary JS and is not ours to
+# redistribute. Fetch it locally with the curl command in the README.
+vendor/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
