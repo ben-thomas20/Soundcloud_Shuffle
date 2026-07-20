@@ -12,8 +12,7 @@ few dozen tracks on repeat. This extension bypasses the page and talks to
 SoundCloud's internal `api-v2` directly, so the sample space is every track you
 have ever liked.
 
-It runs in a side panel styled like a mobile music player, with an animated
-"hexdump" ASCII backdrop rendered from the current track's artwork.
+It runs in a side panel styled like a mobile music player.
 
 
 ![True Shuffle side panel](docs/demo.png)
@@ -48,9 +47,6 @@ listing (see [Why it is not on the Web Store](#why-it-is-not-on-the-web-store)).
 5. **Shuffle.** Click the extension icon to open the side panel, then hit
    **reshuffle**. The first run pages through your whole library and caches it;
    later runs start instantly.
-
-## How it works
-
 
 
 ## Privacy and security
