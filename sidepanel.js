@@ -5,7 +5,10 @@ const DEAD_KEY = 'dead';           // track ids that never actually start
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const PAGE_SIZE = 200;
 const PAGE_DELAY_MS = 120;
-const STALL_TIMEOUT_MS = 9000;
+const STALL_TIMEOUT_MS = 9000;      // never starts: no progress at all
+const FREEZE_TIMEOUT_MS = 10000;    // started, then position stopped advancing
+const MONITOR_INTERVAL_MS = 2000;
+const STREAM_FAIL_GRACE_MS = 3000;  // after the embed 404s a track's stream
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,6 +22,10 @@ const state = {
   index: -1,
   widget: null,
   stallTimer: null,
+  monitor: null,
+  lastPos: 0,
+  lastAdvanceAt: 0,
+  playing: false,
   dead: new Set(),
   duration: 0,
 };
@@ -154,8 +161,17 @@ function clearStall() {
   state.stallTimer = null;
 }
 
+function clearMonitor() {
+  if (state.monitor) clearInterval(state.monitor);
+  state.monitor = null;
+}
+
 function play(i) {
-  if (i < 0 || i >= state.queue.length) return;
+  if (i < 0 || i >= state.queue.length) {
+    clearStall();
+    clearMonitor();
+    return;
+  }
   state.index = i;
   const t = state.queue[i];
 
@@ -166,15 +182,34 @@ function play(i) {
   $('cur').textContent = '0:00';
   $('dur').textContent = '0:00';
   state.duration = 0;
+  state.lastPos = 0;
+  state.lastAdvanceAt = Date.now();
+  state.playing = false;
 
   clearStall();
-  // Go+, geo-blocked and embed-disabled tracks often fire no ERROR event.
-  // They just load and never start, so we time them out and remember them.
+  clearMonitor();
+
+  // Watchdog 1 (never starts): Go+, geo-blocked, embed-disabled, and some
+  // tracks whose HLS stream 404s in the embed just load and sit at position 0
+  // with no ERROR event. Time them out and remember them so we pay the cost
+  // once per track.
   state.stallTimer = setTimeout(() => {
     markDead(t.id);
     log(`skipped (no playback): ${t.title}`);
     play(state.index + 1);
   }, STALL_TIMEOUT_MS);
+
+  // Watchdog 2 (freezes partway): a stream segment stalls after playback has
+  // begun. Nothing fires FINISH, so without this the track hangs until skipped
+  // by hand. We only watch while actually playing, and skip WITHOUT marking
+  // dead, because a mid-stream stall is usually transient (the track is fine).
+  state.monitor = setInterval(() => {
+    if (!state.playing) return;
+    if (Date.now() - state.lastAdvanceAt > FREEZE_TIMEOUT_MS) {
+      log(`skipped (stalled): ${t.title}`);
+      play(state.index + 1);
+    }
+  }, MONITOR_INTERVAL_MS);
 
   state.widget.load(t.url, {
     auto_play: true,
@@ -185,30 +220,62 @@ function play(i) {
         state.widget.unbind(e)
       );
 
-      // The first PLAY_PROGRESS is our only reliable proof the track actually
-      // started, so it doubles as the stall-timer cancel. Do not split the
-      // cancel out of this handler or unplayable tracks will hang the player.
+      // Progress is the liveness signal. Only real audio (position past 0)
+      // cancels the start watchdog, so a stray position-0 tick emitted at load
+      // can no longer disarm it. Any change in position (a normal tick or a
+      // seek) counts as alive and refreshes the freeze monitor.
       state.widget.bind(E.PLAY_PROGRESS, (p) => {
-        clearStall();
+        const pos = p.currentPosition || 0;
+        if (pos > 0) clearStall();
+        if (pos !== state.lastPos) {
+          state.lastPos = pos;
+          state.lastAdvanceAt = Date.now();
+        }
         $('fill').style.width = `${(p.relativePosition || 0) * 100}%`;
-        $('cur').textContent = fmt(p.currentPosition);
+        $('cur').textContent = fmt(pos);
       });
       state.widget.bind(E.FINISH, () => play(state.index + 1));
       state.widget.bind(E.ERROR, () => {
         markDead(t.id);
         play(state.index + 1);
       });
-      state.widget.bind(E.PLAY, () => setPlayIcon(true));
-      state.widget.bind(E.PAUSE, () => setPlayIcon(false));
+      // Track play/pause so the freeze monitor never fires during a manual
+      // pause, and so resuming does not count the paused time as a stall.
+      state.widget.bind(E.PLAY, () => {
+        state.playing = true;
+        state.lastAdvanceAt = Date.now();
+        setPlayIcon(true);
+      });
+      state.widget.bind(E.PAUSE, () => {
+        state.playing = false;
+        setPlayIcon(false);
+      });
 
       state.widget.getDuration((d) => {
         state.duration = d;
         $('dur').textContent = fmt(d);
       });
       state.widget.getCurrentSound((s) => updateArtwork(s));
+      state.playing = true;
       setPlayIcon(true);
     },
   });
+}
+
+// The background service worker sees the embed's stream request 404 well before
+// our stall timeout would fire. When it does, and it is the current track that
+// has not actually started, give it a brief grace to fall back to another
+// stream, then skip. Real progress (position past 0) cancels this via the
+// PLAY_PROGRESS handler, so a track that recovers is never wrongly skipped.
+function onStreamFail(trackId) {
+  const t = state.queue[state.index];
+  if (!t || t.id !== trackId || state.lastPos > 0) return;
+  clearStall();
+  state.stallTimer = setTimeout(() => {
+    markDead(t.id);
+    log(`skipped (no stream): ${t.title}`);
+    play(state.index + 1);
+  }, STREAM_FAIL_GRACE_MS);
 }
 
 // -----------------------------------------------------------------------
@@ -239,6 +306,10 @@ async function start(forceRefetch) {
   state.queue = shuffled(playable);
   play(0);
 }
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === 'stream-fail') onStreamFail(msg.trackId);
+});
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadDead();

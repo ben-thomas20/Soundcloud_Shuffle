@@ -1,35 +1,25 @@
 'use strict';
 
-// Self-contained reimplementation of the 21st.dev "Minimal" ASCII effect,
-// pinned to the "hexdump" preset the panel ships with. Canvas2D only, no deps,
-// nothing pulled in from the reference project.
-//
-// The source photo is the currently playing track's artwork: we sample it into
-// a grid of cells, map each cell's luminance to a hex glyph, and animate a
-// shimmer sweep across the grid with a faint halftone sheen on top. bgMode is
-// "none", so nothing is drawn behind the glyphs and the panel background shows
-// through the transparent cells.
+// Dynamic pixel backdrop. The source photo is the currently playing track's
+// artwork: we sample it into a grid of cells, then draw one dim square "pixel"
+// per cell whose brightness tracks the cell's luminance, with a slow shimmer
+// sweep. Canvas2D only, no deps. bgMode is "none", so cells are transparent and
+// the panel background shows through, keeping it well behind the UI.
 window.AsciiBackground = (function () {
   'use strict';
 
-  // The subset of the full parameter set that this preset actually exercises.
-  // Neutral/disabled parameters (tint at 0 opacity, blur off, most pfx off) are
-  // intentionally omitted rather than implemented as no-ops.
   const CFG = {
-    cellSize: 8,
+    cellSize: 6,
     coverage: 100,      // percent of cells eligible to draw
     contrast: 150,      // 100 is neutral
     brightness: 0,      // additive, -100..100 scaled to luminance
-    grayscale: 100,     // fully monochrome, so glyph color is a fixed gray
+    grayscale: 100,     // fully monochrome, so pixels are a fixed gray
     invert: false,
     animStyle: 'shimmer',
     animSpeed: 100,     // 0..100
-    animIntensity: 60,  // 0..100
-    halftone: 30,       // pfx.halftone intensity, 0..100
-    glyphAlpha: 0.6,    // overall backdrop strength, keeps it behind the UI
+    animIntensity: 30,  // 0..100
+    pixelAlpha: 0.3,    // overall backdrop strength; lower is dimmer
   };
-
-  const HEX = '0123456789abcdef';
 
   let canvas, ctx;
   let cols = 0;
@@ -56,9 +46,6 @@ window.AsciiBackground = (function () {
     rows = Math.max(1, Math.ceil(h / cell));
     if (hasImage) sample();
     else procedural();
-    // Font/baseline reset because setting canvas.width clears all state.
-    ctx.font = `${cell}px ui-monospace, "SFMono-Regular", Menlo, monospace`;
-    ctx.textBaseline = 'top';
   }
 
   // Downscaling the source to exactly cols x rows makes each destination pixel
@@ -114,48 +101,30 @@ window.AsciiBackground = (function () {
     if (!lum) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#d8d8d8';
+    ctx.fillStyle = '#cfcfcf';
 
     const speed = 0.0016 * CFG.animSpeed / 100;
     const amp = 0.6 * CFG.animIntensity / 100;
     const p = now * speed;
     const cov = CFG.coverage / 100;
+    // Leave a 1px gap only for chunky cells; small cells stay solid for detail.
+    const size = cell >= 6 ? cell - 1 : cell;
 
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         let l = lum[y * cols + x];
-        // shimmer: a diagonal brightness band sweeping across the grid. It
-        // nudges cells across glyph thresholds, so the hex digits also churn.
+        // shimmer: a diagonal brightness band sweeping across the grid.
         const sh = 1 + amp * Math.sin((x + y) * 0.28 - p);
         l = l * sh;
         if (l <= 0) continue;
         if (cov < 1 && hash(x, y) > cov) continue;
-        const a = l * CFG.glyphAlpha;
-        if (a < 0.05) continue;         // skip near-empty cells: faster and cleaner
+        const a = l * CFG.pixelAlpha;
+        if (a < 0.04) continue;         // skip near-empty cells: faster and cleaner
         ctx.globalAlpha = a > 1 ? 1 : a;
-        const idx = l >= 1 ? 15 : (l * 16) | 0;
-        ctx.fillText(HEX[idx < 0 ? 0 : idx], x * cell, y * cell);
+        ctx.fillRect(x * cell, y * cell, size, size);
       }
     }
     ctx.globalAlpha = 1;
-
-    // Halftone sheen: faint white dots sized by cell luminance on a coarse
-    // grid, so it reads as texture rather than per-cell noise.
-    if (CFG.halftone > 0) {
-      const step = 2;
-      const maxR = cell * 0.42;
-      const ha = 0.05 * CFG.halftone / 30;
-      ctx.fillStyle = `rgba(255,255,255,${ha})`;
-      for (let y = 0; y < rows; y += step) {
-        for (let x = 0; x < cols; x += step) {
-          const r = lum[y * cols + x] * maxR;
-          if (r < 0.4) continue;
-          ctx.beginPath();
-          ctx.arc(x * cell + cell / 2, y * cell + cell / 2, r, 0, 6.2832);
-          ctx.fill();
-        }
-      }
-    }
   }
 
   function init(el) {

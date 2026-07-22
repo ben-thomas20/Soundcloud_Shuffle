@@ -12,7 +12,8 @@
   "host_permissions": [
     "https://api-v2.soundcloud.com/*",
     "https://soundcloud.com/*",
-    "https://*.sndcdn.com/*"
+    "https://*.sndcdn.com/*",
+    "https://api-widget.soundcloud.com/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

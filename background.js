@@ -28,6 +28,25 @@ chrome.webRequest.onSendHeaders.addListener(
   ['requestHeaders']
 );
 
+// Some tracks have no stream the anonymous embed is allowed to fetch (they
+// need the user's auth, which the site has but the widget does not). The
+// widget's hls/progressive stream request 404s and the player then silently
+// hangs with no ERROR event. We watch for that failure and tell the panel which
+// track it was, so the panel can skip it fast instead of waiting out its stall
+// timeout. The track id is in the request URL as "tracks:<id>".
+function reportStreamFail(details) {
+  if (typeof details.statusCode === 'number' && details.statusCode < 400) return;
+  const m = /tracks:(\d+)/.exec(details.url);
+  if (!m) return;
+  chrome.runtime
+    .sendMessage({ type: 'stream-fail', trackId: Number(m[1]) })
+    .catch(() => {}); // panel may be closed; nothing to do
+}
+
+const STREAM_FILTER = { urls: ['https://api-widget.soundcloud.com/media/*/stream/*'] };
+chrome.webRequest.onCompleted.addListener(reportStreamFail, STREAM_FILTER);
+chrome.webRequest.onErrorOccurred.addListener(reportStreamFail, STREAM_FILTER);
+
 // Clicking the toolbar icon opens the side panel rather than a popup, so
 // playback survives the panel losing focus.
 chrome.sidePanel
